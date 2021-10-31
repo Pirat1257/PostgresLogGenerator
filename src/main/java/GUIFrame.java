@@ -56,7 +56,19 @@ public class GUIFrame extends JFrame {
         generateButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                db_work.create_variant(log_path.getText(), trash_log_name.getText(), result_path.getText(), "2", 10);
+                int i = Integer.parseInt(count_of_vars.getText());
+                progressBar.setStringPainted(true);
+                progressBar.setMinimum(0);
+                progressBar.setMaximum(i);
+                for (int k = 0; k < i; k++) {
+                    db_work.create_variant(log_path.getText(), trash_log_name.getText(), result_path.getText(), String.valueOf(k), 10);
+                    progressBar.setValue(k + 1);
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException ex) {
+                        ex.printStackTrace();
+                    }
+                }
             }
         });
 

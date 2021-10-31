@@ -162,7 +162,7 @@
           </grid>
         </constraints>
         <properties>
-          <text value="10"/>
+          <text value="1"/>
         </properties>
       </component>
       <component id="f5257" class="javax.swing.JButton" binding="generateButton" default-binding="true">
