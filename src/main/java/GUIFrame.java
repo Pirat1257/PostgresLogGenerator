@@ -13,7 +13,7 @@ public class GUIFrame extends JFrame {
     private JTextField admin_name;
     private JPasswordField admin_pass;
     private JButton connectButton;
-    private JLabel connectionLable;
+    private JLabel connectionLabel;
     private JTextField count_of_vars;
     private JButton generateButton;
     private JProgressBar progressBar;
@@ -22,9 +22,11 @@ public class GUIFrame extends JFrame {
     /*---- Конструктор ----*/
     public GUIFrame() {
         setContentPane(rootPanel); // Установка панели содержимого
+        rootPanel.setMinimumSize(new Dimension(10, 10));
+        pack();
         setVisible(true); // Установка видимости
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE); // Действие при завершении программы
-        connectionLable.setForeground(Color.red); // Выделяем надпись о подключении красным
+        connectionLabel.setForeground(Color.red); // Выделяем надпись о подключении красным
         // Инициализация класса работы с БД
         db_work = new DB_work();
 
@@ -35,19 +37,18 @@ public class GUIFrame extends JFrame {
                 String url = db_url.getText();
                 String admin_username = admin_name.getText();
                 String admin_password = admin_pass.getText();
-
+                // Без пароля - сразу на выход
                 if (admin_password.length() == 0)
                     return;
-
+                // Пробуем подключиться
                 if (db_work.connect_to_BD(url, admin_username, admin_password) == true) {
-                    connectionLable.setForeground(Color.green);
-                    connectionLable.setText("Подключено");
+                    connectionLabel.setForeground(Color.green);
+                    connectionLabel.setText("Подключено");
                 }
                 else {
-                    connectionLable.setForeground(Color.red);
-                    connectionLable.setText("Нет подключения");
+                    connectionLabel.setForeground(Color.red);
+                    connectionLabel.setText("Нет подключения");
                 }
-
             }
         });
 
@@ -55,7 +56,7 @@ public class GUIFrame extends JFrame {
         generateButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-
+                db_work.create_variant(log_path.getText(), trash_log_name.getText(), result_path.getText(), "2", 10);
             }
         });
 
