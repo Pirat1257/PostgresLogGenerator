@@ -17,6 +17,7 @@ public class GUIFrame extends JFrame {
     private JTextField count_of_vars;
     private JButton generateButton;
     private JProgressBar progressBar;
+    private JButton disconnectButton;
     private DB_work db_work;
 
     /*---- Конструктор ----*/
@@ -52,6 +53,17 @@ public class GUIFrame extends JFrame {
             }
         });
 
+        /*---- Обработка нажатия на кнопку DISCONNECT ----*/
+        disconnectButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (db_work.disconnect_from_DB() == true) {
+                    connectionLabel.setForeground(Color.red);
+                    connectionLabel.setText("Нет подключения");
+                }
+            }
+        });
+
         /*---- Обработка нажатия на кнопку GENERATE ----*/
         generateButton.addActionListener(new ActionListener() {
             @Override
@@ -60,14 +72,10 @@ public class GUIFrame extends JFrame {
                 progressBar.setStringPainted(true);
                 progressBar.setMinimum(0);
                 progressBar.setMaximum(i);
+                progressBar.setValue(0);
                 for (int k = 0; k < i; k++) {
                     db_work.create_variant(log_path.getText(), trash_log_name.getText(), result_path.getText(), String.valueOf(k), 10);
                     progressBar.setValue(k + 1);
-                    try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException ex) {
-                        ex.printStackTrace();
-                    }
                 }
             }
         });

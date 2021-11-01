@@ -374,9 +374,10 @@ class user extends Thread {
     /*---- Запуск работы ----*/
     @Override
     public void run() {
+        Connection con = null;
         try {
             // Пользователь подключается к БД
-            Connection con = DriverManager.getConnection(url, name, "pass");
+            con = DriverManager.getConnection(url, name, "pass");
             st = con.createStatement();
             String start, finish = null; // Для записи времени
             // Если это нарушить, производится выбор шага, на котором будет произведена кража информации
@@ -387,9 +388,15 @@ class user extends Thread {
             String startString = null;
             String finishString = null;
             for (int i = 0; i < operationCount; i++) {
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
                 ResultSet rs_start = st.executeQuery("select current_timestamp;");
-                rs_start.next();
-                startString = rs_start.getString(1);
+                if (rs_start.next()) {
+                    startString = rs_start.getString(1);
+                }
                 // Если это злоумышленник и настало время кражи - обращаемся к секретной информации
                 if (evil == true && i == timeToSteal) {
                     // engineer
@@ -411,8 +418,9 @@ class user extends Thread {
                         FileWriter answerWriter = null;
                         try {
                             answerWriter = new FileWriter(varPathString, true);
-                            rs_finish.next();
-                            finishString = rs_finish.getString(1);
+                            if(rs_finish.next()) {
+                                finishString = rs_finish.getString(1);
+                            }
                         } catch (IOException e) {
                             e.printStackTrace();
                         }
@@ -440,7 +448,7 @@ class user extends Thread {
                     else if (role == 3) {
                         customerWork();
                     }
-                    st.executeQuery("select current_timestamp");
+                    st.execute("select current_timestamp");
                 }
             }
         } catch (SQLException e) {
@@ -448,6 +456,8 @@ class user extends Thread {
         }
         try {
             st.close();
+            con.close();
+            //System.out.println(1);
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -913,6 +923,18 @@ public class DB_work {
         }
     }
 
+    /*---- Отключение от БД как администратор ----*/
+    public boolean disconnect_from_DB() {
+        try {
+            st_admin.close();
+            con_admin.close();
+            return true;
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
     /*---- Создание БД ----*/
     private void create_db() {
         try {
@@ -1150,9 +1172,9 @@ public class DB_work {
             switch (evilNumber) {
                 case 1: evilName = "elizabeth"; break;
                 case 2: evilName = "emily"; break;
-                case 3: evilName = "Jack"; break;
-                case 4: evilName = "Riley"; break;
-                case 5: evilName = "Ethan"; break;
+                case 3: evilName = "jack"; break;
+                case 4: evilName = "riley"; break;
+                case 5: evilName = "ethan"; break;
             }
         }
         else if (5 <= vulnerableVar && vulnerableVar <= 9) { // 5-9: менеджер
