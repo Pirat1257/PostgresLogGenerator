@@ -1,12 +1,13 @@
 import java.io.*;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.*;
 
 /*---- Работа от лица пользователей БД ----*/
-class user extends Thread {
+class User extends Thread {
 
     String name; // Имя работника или покупателя - того, кого реализует данный поток
     int role; // Роль: 0 - admin, 1 - engineer, 2- manager, 3 - client
@@ -19,7 +20,15 @@ class user extends Thread {
     int vulnerableVar; // Вариант уязвимости, необходимый для определения кражи
 
     /*---- Конструктор ----*/
-    public user(String name_, int role_, boolean evil_, int operationCount_, int vulnerableVar_, String varPathString_, String url_) {
+    public User(
+            String name_, // Имя работника или покупателя
+            int role_, // Роль персонажа: 0 - admin, 1 - engineer, 2- manager, 3 - client
+            boolean evil_, // Злоумышленник?
+            int operationCount_, // Количество выполняемых транзакций
+            int vulnerableVar_, // Вариант уязвимости
+            String varPathString_, // Путь для записи ответа
+            String url_ // url базы данных
+    ) {
         name = name_;
         role = role_;
         evil = evil_;
@@ -380,9 +389,9 @@ class user extends Thread {
             con = DriverManager.getConnection(url, name, "pass");
             st = con.createStatement();
             String start, finish = null; // Для записи времени
-            // Если это нарушить, производится выбор шага, на котором будет произведена кража информации
+            // Если это нарушитель, производится выбор шага, на котором будет произведена кража информации
             if (evil == true) {
-                timeToSteal = (int)(Math.random() * ((operationCount - 1) + 1)) +1;
+                timeToSteal = (int)(Math.random() * (((operationCount - 1) - 1) + 1)) + 1;
             }
             // Цикл вызова операций
             String startString = null;
@@ -415,17 +424,17 @@ class user extends Thread {
                     // Запись временного промежутка, во время которого произошла кража
                     try {
                         // Подготовка к записи в файл ответов
-                        FileWriter answerWriter = null;
-                        try {
-                            answerWriter = new FileWriter(varPathString, true);
-                            if(rs_finish.next()) {
-                                finishString = rs_finish.getString(1);
-                            }
-                        } catch (IOException e) {
-                            e.printStackTrace();
+                        OutputStream os = null;
+                        OutputStreamWriter osw = null;
+                        File answerFile = new File(varPathString);
+                        os = new FileOutputStream(answerFile, true);
+                        osw = new OutputStreamWriter(os, "UTF-8");
+                        if(rs_finish.next()) {
+                            finishString = rs_finish.getString(1);
                         }
-                        answerWriter.write("Временной промежуток, когда произошла кража:\n    " + startString + "\n    " + finishString + "\n");
-                        answerWriter.close();
+                        osw.write("Временной промежуток, когда произошла кража:\n    " + startString + "\n    " + finishString + "\n" + "Номер запроса злоумышленника: " + timeToSteal);
+                        osw.flush();
+                        osw.close();
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
@@ -964,33 +973,34 @@ public class DB_work {
     }
 
     /*---- Копирование файла ----*/
-    private static void copyFileUsingChannel(File source, File dest) {
+    private static boolean copyFileUsingChannel(File source, File dest) {
         FileChannel sourceChannel = null;
         FileChannel destChannel = null;
-        try {
+
             try {
                 sourceChannel = new FileInputStream(source).getChannel();
                 destChannel = new FileOutputStream(dest).getChannel();
             } catch (FileNotFoundException e) {
                 e.printStackTrace();
+                return false;
             }
             try {
                 destChannel.transferFrom(sourceChannel, 0, sourceChannel.size());
             } catch (IOException e) {
                 e.printStackTrace();
             }
-        }finally{
-            try {
-                sourceChannel.close();
-                destChannel.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+
+        try {
+            sourceChannel.close();
+            destChannel.close();
+        } catch (IOException e) {
+            e.printStackTrace();
         }
+        return true;
     }
 
     /*---- Генерация одного варианта ----*/
-    public void create_variant(
+    public boolean create_variant(
             String log_path, // Путь до логов postgres
             String log_file, // Название файла для записи в логах postgres
             String save_path, // Куда сохранять результат
@@ -1011,23 +1021,38 @@ public class DB_work {
         varPath.mkdir();
         // Удаление файла для записи логов из папки
         Path logFilePath = Paths.get(log_path + "\\" + log_file);
-        try {
-            Files.deleteIfExists(logFilePath);
-        } catch (IOException e) {
-            e.printStackTrace();
+        if (Files.exists(logFilePath)) {
+            String settingUpLogs = logSettings;
+            settingUpLogs = settingUpLogs.replace("logname", "postgresql-%Y-%m-%d_%H%M%S.log");
+            try {
+                st_admin.execute(settingUpLogs);
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+            try {
+                Files.deleteIfExists(logFilePath);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
         // Создание файла для записи ответа
         File answerFile = new File(varPathString + "\\" + "answer" + varNumber + ".txt");
         try {
+            answerFile.getParentFile().mkdirs();
             answerFile.createNewFile();
         } catch (IOException e) {
             e.printStackTrace();
         }
         // Подготовка к записи в файл ответов
-        FileWriter answerWriter = null;
+        OutputStream os = null;
+        OutputStreamWriter osw = null;
         try {
-            answerWriter = new FileWriter(varPathString + "\\" + "answer" + varNumber + ".txt");
-        } catch (IOException e) {
+            os = new FileOutputStream(answerFile);
+            osw = new OutputStreamWriter(os, "UTF-8");
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+            return false;
+        } catch (UnsupportedEncodingException e) {
             e.printStackTrace();
         }
         // Для настройки политики безопасности
@@ -1038,116 +1063,121 @@ public class DB_work {
         switch (vulnerableVar) {
             case 1: settingUpSecurity = correctAdmin + incorrectEngineer1 + correctManager + correctClient;
                 try {
-                    answerWriter.write("1. Некорректная настройка доступа для инженера, при которой ему предоставлена возможность просмотра информации о всех работниках\n");
+                    osw.write("1. Некорректная настройка доступа для инженера, при которой ему предоставлена возможность просмотра информации о всех работниках\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 2: settingUpSecurity = correctAdmin + incorrectEngineer2 + correctManager + correctClient;
                 try {
-                    answerWriter.write("2. Некорректная настройка доступа для инженера, при которой ему предоставлена возможность просмотра информации о всех работниках\n");
+                    osw.write("2. Некорректная настройка доступа для инженера, при которой ему предоставлена возможность просмотра информации о всех работниках\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 3: settingUpSecurity = correctAdmin + incorrectEngineer3 + correctManager + correctClient;
                 try {
-                    answerWriter.write("3. Некорректная настройка доступа для инженера, при которой ему предоставлена возможность просмотра информации о заказах\n");
+                    osw.write("3. Некорректная настройка доступа для инженера, при которой ему предоставлена возможность просмотра информации о заказах\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 4: settingUpSecurity = correctAdmin + incorrectEngineer4 + correctManager + correctClient;
                 try {
-                    answerWriter.write("4. Некорректная настройка доступа для инженера, при которой ему предоставлена возможность просмотра информации о покупателях\n");
+                    osw.write("4. Некорректная настройка доступа для инженера, при которой ему предоставлена возможность просмотра информации о покупателях\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 5: settingUpSecurity = correctAdmin + correctEngineer + incorrectManager1 + correctClient;
                 try {
-                    answerWriter.write("5. Некорректная настройка доступа для менеджера, при которой ему предоставлена возможность просмотра информации о всех работниках\n");
+                    osw.write("5. Некорректная настройка доступа для менеджера, при которой ему предоставлена возможность просмотра информации о всех работниках\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 6: settingUpSecurity = correctAdmin + correctEngineer + incorrectManager2 + correctClient;
                 try {
-                    answerWriter.write("6. Некорректная настройка доступа для менеджера, при которой ему предоставлена возможность просмотра информации о всех работниках\n");
+                    osw.write("6. Некорректная настройка доступа для менеджера, при которой ему предоставлена возможность просмотра информации о всех работниках\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 7: settingUpSecurity = correctAdmin + correctEngineer + incorrectManager3 + correctClient;
                 try {
-                    answerWriter.write("7. Некорректная настройка доступа для менеджера, при которой ему предоставлена возможность просмотра информации о всем оборудовании\n");
+                    osw.write("7. Некорректная настройка доступа для менеджера, при которой ему предоставлена возможность просмотра информации о всем оборудовании\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 8: settingUpSecurity = correctAdmin + correctEngineer + incorrectManager4 + correctClient;
                 try {
-                    answerWriter.write("8. Некорректная настройка доступа для менеджера, при которой ему предоставлена возможность просмотра информации о всем оборудовании\n");
+                    osw.write("8. Некорректная настройка доступа для менеджера, при которой ему предоставлена возможность просмотра информации о всем оборудовании\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 9: settingUpSecurity = correctAdmin + correctEngineer + incorrectManager5 + correctClient;
                 try {
-                    answerWriter.write("9. Некорректная настройка доступа для менеджера, при которой ему предоставлена возможность просмотра информации о всех покупателях\n");
+                    osw.write("9. Некорректная настройка доступа для менеджера, при которой ему предоставлена возможность просмотра информации о всех покупателях\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 10: settingUpSecurity = correctAdmin + correctEngineer + correctManager + incorrectClient1;
                 try {
-                    answerWriter.write("10. Некорректная настройка доступа для покупателя, при которой ему предоставлена возможность просмотра информации о всех работниках\n");
+                    osw.write("10. Некорректная настройка доступа для покупателя, при которой ему предоставлена возможность просмотра информации о всех работниках\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 11: settingUpSecurity = correctAdmin + correctEngineer + correctManager + incorrectClient2;
                 try {
-                    answerWriter.write("11. Некорректная настройка доступа для покупателя, при которой ему предоставлена возможность просмотра информации о всех заказах\n");
+                    osw.write("11. Некорректная настройка доступа для покупателя, при которой ему предоставлена возможность просмотра информации о всех заказах\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 12: settingUpSecurity = correctAdmin + correctEngineer + correctManager + incorrectClient3;
                 try {
-                    answerWriter.write("12. Некорректная настройка доступа для покупателя, при которой ему предоставлена возможность просмотра информации о всех заказах\n");
+                    osw.write("12. Некорректная настройка доступа для покупателя, при которой ему предоставлена возможность просмотра информации о всех заказах\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 13: settingUpSecurity = correctAdmin + correctEngineer + correctManager + incorrectClient4;
                 try {
-                    answerWriter.write("13. Некорректная настройка доступа для покупателя, при которой ему предоставлена возможность просмотра информации о всем оборудовании\n");
+                    osw.write("13. Некорректная настройка доступа для покупателя, при которой ему предоставлена возможность просмотра информации о всем оборудовании\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 14: settingUpSecurity = correctAdmin + correctEngineer + correctManager + incorrectClient5;
                 try {
-                    answerWriter.write("14. Некорректная настройка доступа для покупателя, при которой ему предоставлена возможность просмотра информации о всем оборудовании\n");
+                    osw.write("14. Некорректная настройка доступа для покупателя, при которой ему предоставлена возможность просмотра информации о всем оборудовании\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 15: settingUpSecurity = correctAdmin + correctEngineer + correctManager + incorrectClient6;
                 try {
-                    answerWriter.write("15. Некорректная настройка доступа для покупателя, при которой ему предоставлена возможность просмотра информации о всех покупателях\n");
+                    osw.write("15. Некорректная настройка доступа для покупателя, при которой ему предоставлена возможность просмотра информации о всех покупателях\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
             case 16: settingUpSecurity = correctAdmin + correctEngineer + correctManager + incorrectClient7;
                 try {
-                    answerWriter.write("16. Некорректная настройка доступа для покупателя, при которой ему предоставлена возможность просмотра информации о всех покупателях\n");
+                    osw.write("16. Некорректная настройка доступа для покупателя, при которой ему предоставлена возможность просмотра информации о всех покупателях\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
                 break;
+        }
+        try {
+            osw.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
         }
         settingUpLogs = settingUpLogs.replace("logname", log_file); // Подставляем название файла логов
         // Производим установку настроек - начало записи
@@ -1195,143 +1225,145 @@ public class DB_work {
                 case 5: evilName = "lucy"; break;
             }
         }
+
         // Упоминаем злоумышленника в файле ответа
         try {
-            answerWriter.write("Злоумышленник: " + evilName + "\n");
-            answerWriter.close();
+            osw.write("Злоумышленник: " + evilName + "\n");
+            osw.flush();
+            osw.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
         // Создание пользователей
-        user[] users;
-        users = new user[16];
+        User[] users;
+        users = new User[16];
         for (int i = 0; i < 16; i++) {
             if (i == 0) {
                 if (evilName.compareTo("henry") == 0) {
-                    users[i] = new user("henry", 0, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("henry", 0, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("henry", 0, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("henry", 0, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 1) {
                 if (evilName.compareTo("elizabeth") == 0) {
-                    users[i] = new user("elizabeth", 1, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("elizabeth", 1, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("elizabeth", 1, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("elizabeth", 1, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 2) {
                 if (evilName.compareTo("emily") == 0) {
-                    users[i] = new user("emily", 1, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("emily", 1, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("emily", 1, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("emily", 1, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 3) {
                 if (evilName.compareTo("jack") == 0) {
-                    users[i] = new user("jack", 1, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("jack", 1, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("jack", 1, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("jack", 1, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 4) {
                 if (evilName.compareTo("riley") == 0) {
-                    users[i] = new user("riley", 1, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("riley", 1, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("riley", 1, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("riley", 1, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 5) {
                 if (evilName.compareTo("ethan") == 0) {
-                    users[i] = new user("ethan", 1, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("ethan", 1, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("ethan", 1, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("ethan", 1, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 6) {
                 if (evilName.compareTo("oliver") == 0) {
-                    users[i] = new user("oliver", 2, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("oliver", 2, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("oliver", 2, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("oliver", 2, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 7) {
                 if (evilName.compareTo("alexander") == 0) {
-                    users[i] = new user("alexander", 2, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("alexander", 2, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("alexander", 2, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("alexander", 2, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 8) {
                 if (evilName.compareTo("harry") == 0) {
-                    users[i] = new user("harry", 2, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("harry", 2, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("harry", 2, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("harry", 2, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 9) {
                 if (evilName.compareTo("daniel") == 0) {
-                    users[i] = new user("daniel", 2, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("daniel", 2, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("daniel", 2, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("daniel", 2, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 10) {
                 if (evilName.compareTo("sophie") == 0) {
-                    users[i] = new user("sophie", 2, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("sophie", 2, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("sophie", 2, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("sophie", 2, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 11) {
                 if (evilName.compareTo("mia") == 0) {
-                    users[i] = new user("mia", 3, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("mia", 3, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("mia", 3, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("mia", 3, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 12) {
                 if (evilName.compareTo("amelia") == 0) {
-                    users[i] = new user("amelia", 3, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("amelia", 3, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("amelia", 3, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("amelia", 3, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 13) {
                 if (evilName.compareTo("jessica") == 0) {
-                    users[i] = new user("jessica", 3, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("jessica", 3, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("jessica", 3, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("jessica", 3, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 14) {
                 if (evilName.compareTo("lily") == 0) {
-                    users[i] = new user("lily", 3, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("lily", 3, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("lily", 3, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("lily", 3, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
             else if (i == 15) {
                 if (evilName.compareTo("lucy") == 0) {
-                    users[i] = new user("lucy", 3, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("lucy", 3, true, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
                 else {
-                    users[i] = new user("lucy", 3, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
+                    users[i] = new User("lucy", 3, false, operationCount, vulnerableVar, varPathString + "\\" + "answer" + varNumber + ".txt", url);
                 }
             }
         }
@@ -1365,13 +1397,15 @@ public class DB_work {
             e.printStackTrace();
         }
         // Производим копирование сгенерированных логов
-        copyFileUsingChannel(originalLogFile, copyLogFile);
+        if(copyFileUsingChannel(originalLogFile, copyLogFile) == false) {
+            return false;
+        }
         logFilePath = Paths.get(log_path + "\\" + log_file);
         try {
             Files.deleteIfExists(logFilePath);
         } catch (IOException e) {
             e.printStackTrace();
         }
-        return;
+        return true;
     }
 }

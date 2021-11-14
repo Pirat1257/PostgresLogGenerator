@@ -2,7 +2,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-
+import java.io.File;
 
 public class GUIFrame extends JFrame {
     private JPanel rootPanel;
@@ -16,8 +16,9 @@ public class GUIFrame extends JFrame {
     private JLabel connectionLabel;
     private JTextField count_of_vars;
     private JButton generateButton;
-    private JProgressBar progressBar;
     private JButton disconnectButton;
+    private JTextField operationCountField;
+    private JLabel progressLabel;
     private DB_work db_work;
 
     /*---- Конструктор ----*/
@@ -69,18 +70,14 @@ public class GUIFrame extends JFrame {
             @Override
             public void actionPerformed(ActionEvent e) {
                 int i = Integer.parseInt(count_of_vars.getText());
-                progressBar.setStringPainted(true);
-                progressBar.setMinimum(0);
-                progressBar.setMaximum(i);
-                progressBar.setValue(0);
                 for (int k = 0; k < i; k++) {
-                    db_work.create_variant(log_path.getText(), trash_log_name.getText(), result_path.getText(), String.valueOf(k), 10);
-                    progressBar.setValue(k + 1);
+                    if(db_work.create_variant(log_path.getText(), trash_log_name.getText(), result_path.getText(), String.valueOf(k), Integer.valueOf(operationCountField.getText())) == false) {
+                        progressLabel.setText("Ошибка");
+                        return;
+                    }
                 }
+                progressLabel.setText("Готово");
             }
         });
-
     }
-
-
 }
